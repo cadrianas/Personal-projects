@@ -1,0 +1,317 @@
+---
+title: "Breast cancer - project"
+output:
+  pdf_document: 
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    keep_tex: yes
+latex_engine: pdflatex
+classoption: landscape
+header-includes:
+  \usepackage{helvet}
+  \renewcommand\familydefault{\sfdefault}
+include-before:
+- '`\newpage{}`{=latex}'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(tidyr)                    
+library("scales")
+library(caret)
+library(corrplot)
+library("gridExtra")
+library("extracat")
+library("ggbiplot")
+library(factoextra)
+```
+
+
+# Read the data and performe preliminary data analysis
+Attribute Information:
+
+1) ID number 
+2) Diagnosis (M = malignant, B = benign) 
+3-32)
+
+Ten real-valued features are computed for each cell nucleus:
+
+a) radius (mean of distances from center to points on the perimeter) 
+b) texture (standard deviation of gray-scale values) 
+c) perimeter 
+d) area 
+e) smoothness (local variation in radius lengths) 
+f) compactness (perimeter^2 / area - 1.0) 
+g) concavity (severity of concave portions of the contour) 
+h) concave points (number of concave portions of the contour) 
+i) symmetry 
+j) fractal dimension ("coastline approximation" - 1)
+
+The mean, standard error and "worst" or largest (mean of the three
+largest values) of these features were computed for each image,
+resulting in 30 features. For instance, field 3 is Mean Radius, field
+13 is Radius SE, field 23 is Worst Radius.
+
+All feature values are recoded with four significant digits.
+
+Missing attribute values: none
+
+Class distribution: 357 benign, 212 malignant
+```{r, echo=FALSE}
+breast_cancer_data<- read_csv("data-4.csv")
+```
+
+Let’s look at a summary of the data:
+
+```{r, echo=FALSE}
+summary(breast_cancer_data)
+```
+
+```{r, echo=FALSE}
+
+
+
+
+p_grph <- ggplot(breast_cancer_data, aes(x=diagnosis)) +
+  geom_bar(aes(y = (..count..)/sum(..count..)))+
+  scale_y_continuous("Percentage (%)") +
+  scale_x_discrete("") 
+
+p_table <- breast_cancer_data %>%
+  group_by(diagnosis) %>%
+  dplyr::summarize(count=n()) %>%
+  gridExtra::tableGrob()
+
+gridExtra::grid.arrange(p_grph, p_table)
+```
+
+# Features plots
+In this section we look at the features plots. The id column is not important for this and can be removed. The diagnostic column will be used as a group factor. The last column of the data set is an empty one and ca be removed.  
+```{r, echo=FALSE}
+drops <- c("id","...33","diagnosis")
+processed <- breast_cancer_data[ , !(names(breast_cancer_data) %in% drops)]
+processed_diagnosis <- as.factor(breast_cancer_data$diagnosis)
+```
+Density estimation plots (density plots for short) summarize the distribution of the data. Like a histogram, the relationship between the attribute values and number of observations is summarized, but rather than a frequency, the relationship is summarized as a continuous probability density function (PDF). This is the probability that a given observation has a given value.
+
+The density plots can further be improved by separating each attribute by their class value for the observation. This can be useful to understand the single-attribute relationship with the class values and highlight useful structures like linear separability of attribute values into classes.
+```{r, echo=FALSE}
+scales <- list(x=list(relation="free"),y=list(relation="free"), cex=0.6)
+featurePlot(x=processed,
+            y=processed_diagnosis, 
+            plot="density", 
+            scales= scales,
+            auto.key = list(columns = 2)) 
+```
+Box and Whisker plots (or box plots for short) summarize the distribution of a given attribute by showing a box for the 25th and 75th percentile, a line in the box for the 50th percentile (median) and a dot for the mean. The whiskers show 1.5*the height of the box (called the Inter Quartile Range) which indicate the expected range of the data and any data beyond those whiskers is assumed to be an outlier and marked with a dot.
+
+Again, each attribute can be summarized in terms of their observed class value, giving you an idea of how attribute values and class values relate, much like the density plots.
+```{r, echo=FALSE}
+featurePlot(x=processed,
+            y=processed_diagnosis, 
+            plot = "box", 
+            ## Pass in options to bwplot() 
+            scales = list(y = list(relation="free"),
+                          x = list(rot = 90)),  
+            auto.key = list(columns = 2))
+```
+There is no perfect separation between any of the features; we do have fairly good separations for concave.points_worst, concavity_worst, perimeter_worst, area_mean, perimeter_mean. We do have as well tight superposition for some of the values, like symmetry_se, smoothness_se.
+
+
+
+## Corelation 
+Corelation of the data regardlees of diagnosed
+```{r, echo=FALSE}
+corr_mat <- cor(processed)
+corrplot(corr_mat, method = "square", 
+         hclust.method = "ward", order = "FPC",
+         type = "full", tl.cex=0.8,tl.col = "black")
+```
+The highest correlations are between:
+
+* perimeter_mean and radius_worst;
+* area_worst and radius_worst;
+* perimeter_worst and radius_worst, perimeter_mean, area_worst, area_mean, radius_mean;
+* texture_mean and texture_worst;
+
+In the next section we will look for some of these highly correlated features. We will use boxplot2g, showing the scatter plot (in the two dimmensions given by the selected features) for the clustered data (grouped by diagnosis), over which are supperposed the elliptical shaped boxes in an equivalent (but still enhanced) way a boxplot will visualize the same information for a single dimmension.
+
+### Corelation when diagnose is M
+```{r, echo=FALSE}
+drops <- c("id","...33", "diagnosis")
+processed_M <-filter(breast_cancer_data[ , !(names(breast_cancer_data) %in% drops)], breast_cancer_data$diagnosis == "M")
+
+corr_mat <- cor(processed_M )
+corrplot(corr_mat, method = "square", 
+         hclust.method = "ward", order = "FPC",
+         type = "full", tl.cex=0.8,tl.col = "black")
+
+library(RColorBrewer)
+cls = colorRampPalette(brewer.pal(8, "Dark2"))(256)
+processed_M <- data.matrix(processed_M)
+heatmap(processed_M, scale="column", col = cls, labRow=FALSE,Colv=NA, Rowv=NA)
+
+```
+
+
+### Corelation when diagnose is B
+```{r, echo=FALSE}
+drops <- c("id","...33", "diagnosis")
+processed_B <-filter(breast_cancer_data[ , !(names(breast_cancer_data) %in% drops)], breast_cancer_data$diagnosis == "B")
+
+corr_mat <- cor(processed_B )
+corrplot(corr_mat, method = "square", 
+         hclust.method = "ward", order = "FPC",
+         type = "full", tl.cex=0.8,tl.col = "black")
+
+library(RColorBrewer)
+cls = colorRampPalette(brewer.pal(8, "Dark2"))(256)
+processed_B <- data.matrix(processed_B)
+heatmap(processed_B, scale="column", col = cls, labRow=FALSE,Colv=NA, Rowv=NA)
+
+
+```
+
+
+## Plots for low corelated feature
+
+```{r, echo=FALSE}
+
+b9<- ggplot(breast_cancer_data, aes(x=fractal_dimension_worst, y=area_se, color = diagnosis)) + 
+  geom_point() +
+ stat_ellipse(aes(color = diagnosis), type = "t")+ 
+  theme_classic() + 
+  theme(legend.title = element_blank(),
+        legend.spacing.y = unit(0, "mm"), 
+        panel.border = element_rect(colour = "black", fill=NA),
+        aspect.ratio = 1, axis.text = element_text(colour = 1, size = 12),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black"))+
+   ylab( "Area SE" ) +
+   xlab("Fractal dimmension worst")+
+  ggtitle("Area SE vs. Fractal dimmension worst") 
+
+b10<- ggplot(breast_cancer_data, aes(x=processed$fractal_dimension_worst, y=processed$radius_se, color = diagnosis)) +
+  geom_point() +
+  stat_ellipse(aes(color = diagnosis), type = "t")+ 
+  theme_classic() + 
+  theme(legend.title = element_blank(),
+        legend.spacing.y = unit(0, "mm"), 
+        panel.border = element_rect(colour = "black", fill=NA),
+        aspect.ratio = 1, axis.text = element_text(colour = 1, size = 12),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black"))+
+   ylab( "Radius SE" ) +
+   xlab("Fractal dimmension worst")+
+  ggtitle("Radius SE vs. Fractal dimmension worst") 
+
+
+b11<- ggplot(breast_cancer_data, aes(x=processed$texture_mean, y=processed$smoothness_mean, color = diagnosis)) +
+  geom_point() +
+  stat_ellipse(aes(color = diagnosis), type = "t")+ 
+  theme_classic() + 
+  theme(legend.title = element_blank(),
+        legend.spacing.y = unit(0, "mm"), 
+        panel.border = element_rect(colour = "black", fill=NA),
+        aspect.ratio = 1, axis.text = element_text(colour = 1, size = 12),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black"))+
+   ylab( "Smoothness mean" ) +
+   xlab("Texture mean")+
+  ggtitle("Smoothness mean vs. Texture mean") 
+
+b12<- ggplot(breast_cancer_data, aes(x=processed$perimeter_worst, y=processed$fractal_dimension_se, color = diagnosis)) +
+  geom_point() +
+  stat_ellipse(aes(color = diagnosis), type = "t")+ 
+  theme_classic() + 
+  theme(legend.title = element_blank(),
+        legend.spacing.y = unit(0, "mm"), 
+        panel.border = element_rect(colour = "black", fill=NA),
+        aspect.ratio = 1, axis.text = element_text(colour = 1, size = 12),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black"))+
+   ylab( "Fractal dimension SE" ) +
+   xlab("Perimeter worst")+
+  ggtitle("Fractal dimmension SE vs. Perimeter worst") 
+
+grid.arrange(b9, b10, b11, b12, ncol=2)
+```
+
+
+We can observe low correlated features that have in the same time a considerable overlap for the two M and B groups (ex: fractal_dimension_worst and area_se) as well as low correlated features that have in the same time a good selectivity for M and B groups (ex: perimeter_worstand fractal_dimension_se)
+
+
+# Principal Components Analysis (PCA)
+Principal Components Analysis (PCA) is a well-known unsupervised dimensionality reduction technique that constructs relevant features/variables through linear (linear PCA) or non-linear (kernel PCA) combinations of the original variables (features). 
+The construction of relevant features is achieved by linearly transforming correlated variables into a smaller number of uncorrelated variables. This is done by projecting (dot product) the original data into the reduced PCA space using the eigenvectors of the covariance/correlation matrix aka the principal components (PCs).
+The resulting projected data are essentially linear combinations of the original data capturing most of the variance in the data (https://doi.org/10.1007/b98835).
+
+```{r, echo=FALSE}
+
+bc.pca <- prcomp(processed, center=TRUE, scale.=TRUE)
+
+plot(bc.pca, type="l", main = "Principal components weight")
+title( sub = NULL, xlab = "Components")
+
+fviz_eig(bc.pca, addlabels=TRUE, ylim=c(0,60), geom = c("bar", "line"), barfill = "pink", barcolor="grey",linecolor = "red", ncp=10)+
+labs(title = "Cancer All Variances - PCA",
+         x = "Principal Components", y = "% of variances")
+
+
+```
+
+```{r, echo=FALSE}
+summary(bc.pca)
+```
+The two first components explains the 0.6324 of the variance. We need 7 principal components to explain more than 0.91 of the variance, 10 to explain 0.95 and 17 to explain more than 0.99.
+
+We represent the data projected in the plane of the two principal components. The direction of the features are as well represented in the same plane. Two elipses are showing the 0.68 probability boundary for the distribution of the two groups of diagnosis, B and M. A circle superposed over the scatter plot data helps to evaluate the relative ratio between the features in the most important principal components plane.
+
+The features with highest dimmensions or aligned with the leading principal component are the ones with highest variance.
+
+```{r, echo=FALSE}
+ggbiplot(bc.pca, choices=1:2, obs.scale = 1, var.scale = 1, groups = processed_diagnosis, 
+  ellipse = TRUE, circle = TRUE, varname.size = 3, ellipse.prob = 0.68, circle.prob = 0.69) +
+  scale_color_discrete(name = 'Diagnosis (B: beningn, M: malignant)') + theme_bw() + 
+  labs(title = "Principal Component Analysis", 
+  subtitle = "1. Data distribution in the plan of PC1 and PC2\n2. Directions of components in the same plane") +
+  theme(legend.direction = 'horizontal', legend.position = 'bottom')
+```
+
+Let’s see also the projection of the data in the {PC3, PC4} and {PC5, PC6} Principal Components planes.
+
+```{r, echo=FALSE}
+pc34<- ggbiplot(bc.pca, choices=3:4, obs.scale = 1, var.scale = 1, groups =processed_diagnosis , 
+        ellipse = TRUE, circle = TRUE, varname.size = 3, ellipse.prob = 0.68, circle.prob = 0.69) +
+        scale_color_discrete(name = 'Diagnosis (B: beningn, M: malignant)') + theme_bw() + 
+        labs(title = "Principal Component Analysis", 
+        subtitle = "1. Data distribution in the plan of PC3 and PC4\n2. Directions of components in the same plane") +
+        theme(legend.direction = 'horizontal', legend.position = 'bottom')
+
+pc56<- ggbiplot(bc.pca, choices=5:6, obs.scale = 1, var.scale = 1, groups = processed_diagnosis, 
+        ellipse = TRUE, circle = TRUE, varname.size = 3, ellipse.prob = 0.68, circle.prob = 0.69) +
+        scale_color_discrete(name = 'Diagnosis (B: beningn, M: malignant)') + theme_bw() + 
+        labs(title = "Principal Component Analysis", 
+        subtitle = "1. Data distribution in the plan of PC5 and PC6\n2. Directions of components in the same plane") +
+        theme(legend.direction = 'horizontal', legend.position = 'bottom')
+pc34
+
+pc56
+```
+Principal components PC3-PC6 are explaining together 25.5% variation. We can observe that not only there are no significant alignment of a certain feature with one of the PC3:PC6 principal components but also in the planes {PC3, PC4} and {PC5,PC6} the B and M points are not separated in distinct clusters, like it is the case in the {PC1,PC2} plane.
+
+```{r}
+all_var <- get_pca_var(bc.pca)
+all_var
+library("corrplot")
+corrplot(all_var$cos2, is.corr=FALSE)
+library(gridExtra)
+p1 <- fviz_contrib(bc.pca, choice="var", axes=1, fill="pink", color="grey", top=10)
+p2 <- fviz_contrib(bc.pca, choice="var", axes=2, fill="skyblue", color="grey", top=10)
+grid.arrange(p1,p2,ncol=2)
+```
+
